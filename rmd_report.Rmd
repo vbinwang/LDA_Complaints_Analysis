@@ -1,0 +1,162 @@
+---
+title: "BA Homework_8-Text as Data"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+# Part 1: Exploratory Data Analysis
+How many complaints have been generated. How many are unique or recurring? What can you say about the type of complaints in this report?
+```{r}
+library(magrittr)
+library(hunspell)
+library(stringi) 
+library(servr)
+complaints=read.csv('Consumer_Complaints100k.csv')
+```
+
+## (a). How many complaints have been generated.
+```{r}
+total=dim(complaints)[1]
+print(total)
+```
+
+So there are *100589* complaints that have been generated in total.
+
+## (b). How many are unique or recurring?
+```{r}
+table(complaints$Issue)
+```
+We can find that most of the complaints are recurring based on the detailed issues.
+```{r}
+length(table(complaints$Issue)[table(complaints$Issue)==1])
+```
+We can find that only 3 of the complaints are unique based on the detailed issues.
+## (c).What can you say about the type of complaints in this report?
+Type of complaints can be discussed from several aspects.
+### types of product
+```{r}
+library(ggplot2)
+ggplot(complaints,aes(x=Product))+geom_bar(fill = "lightblue", colour = "black")+ theme(axis.text.x = element_text(angle = 270,size=4)) 
+```
+### types of company
+```{r}
+ggplot(complaints,aes(x=Company))+geom_bar(fill = "lightblue", colour = "black")+ theme(axis.ticks = element_blank(), axis.text.x = element_blank())
+```
+### Type of State
+```{r}
+ggplot(complaints,aes(x=State))+geom_bar(fill = "lightblue", colour = "black")+ theme(axis.text.x = element_text(angle = 270,size=4)) 
+```
+### Type of Submitted.via
+```{r}
+ggplot(complaints,aes(x=Submitted.via))+geom_bar(fill = "lightblue", colour = "black")+ theme(axis.text.x = element_text(angle = 270,size=10)) 
+```
+# Part 2:Text Analysis
+## LDAvis
+I will use the 'LDAvis' package which has been designed to help users interpret the topics in a topic model that has been fit to a corpus of text data. The package extracts information from a fitted LDA topic model to inform an interactive web-based visualization.
+```{r message=FALSE, warning=FALSE, include=FALSE, paged.print=FALSE}
+library("LDAvis")
+```
+Before visualization, to implement the LDA model, I will use the 'tm' and 'lda' packages.
+```{r message=FALSE, warning=FALSE, include=FALSE, paged.print=FALSE}
+library("tm")
+library("topicmodels")
+```
+I will build a corpus with data in "Consumer.complaint.narrative".
+Fisrtly, I will do data cleaning and pre-processing.
+The following code is to build up a corpus.
+```{r}
+text=as.character(complaints$Consumer.complaint.narrative)
+text=text[which(text!='')]
+corpus = as.character(text) %>%
+  tolower %>% 
+  removeNumbers %>% 
+  removePunctuation%>%
+  removeWords(append(append(stopwords("en"),"xxxx"),"xxxxxxxx"))%>% 
+  stripWhitespace%>%
+  VectorSource %>%
+  Corpus
+```
+
+```{r}
+dtm <- DocumentTermMatrix(corpus)
+```
+
+```{r}
+
+burnin <- 1000
+iter <- 1000
+thin <- 500
+seed <-list(2003,5,63,100001,765)
+nstart <- 5
+best <- TRUE
+k <- 20 #find 20 topics
+lda_model =LDA(dtm,k, method="Gibbs", control=list(nstart=nstart, seed = seed, best=best, burnin = burnin, iter = iter, thin=thin))
+```
+
+```{r}
+terms(lda_model,10)
+```
+```{r}
+dtm.mx <- as.matrix(dtm)
+frequency <- colSums(dtm.mx)
+frequency <- sort(frequency, decreasing=TRUE)
+frequency[1:25] 
+```
+
+```{r eval=FALSE, include=FALSE}
+topicmodels2LDAvis <- function(x, ...){
+  post <- topicmodels::posterior(x)
+  if (ncol(post[["topics"]]) < 3) stop("The model must contain > 2 topics")
+  mat <- x@wordassignments
+  LDAvis::createJSON(
+    phi = post[["terms"]], 
+    theta = post[["topics"]],
+    vocab = colnames(post[["terms"]]),
+    doc.length = slam::row_sums(mat, na.rm = TRUE),
+    term.frequency = slam::col_sums(mat, na.rm = TRUE)
+  )
+}
+
+serVis(topicmodels2LDAvis(lda_model),out.dir='LDAvis')
+```
+So the LDAvis has been finished. The related html files are saved in the 'LDAvis' file, and you can also visit the specific web address 'http://127.0.0.1:4321' after running the above command.
+Here is a screenshop of my visualization result.
+```{r}
+knitr::include_graphics("screen.png")
+```
+
+## (a). What differences can be observed from email vs phone "Consumer.complaint.narrative"?
+```{r}
+com_email=complaints[complaints$Submitted.via=='Email',]
+com_phone=complaints[complaints$Submitted.via=='Phone',]
+```
+We can find that there are much more people who use phone to submit there complaints than those use email. And the ratio is 6477:35.
+
+## (b).What type of product issues & complaints are the most frequency during 2016-2017?
+```{r}
+library('lubridate')
+years=year(mdy(complaints$Date.received))
+issues1617=complaints[(years==2016)|(years==2017),]
+```
+First, we print a table.
+```{r}
+list(table(issues1617$Product))
+```
+
+Then, We draw a hist plot.
+```{r}
+library(ggplot2)
+ggplot(issues1617,aes(x=Product))+geom_bar(fill = "lightblue", colour = "black")+ theme(axis.text.x = element_text(angle = 270,size=5)) 
+```
+So we can find that 'Debt collection', 'Credit reporting, credit repair services, or other personal consumer reports', 'Mortgage', 'Credit reporting ' are the most frequent product issues & complaints.
+
+## (c).Complete a sentiment analysis for all the type of complaint submissions observed in the data.
+To do sentiment analysis, I use the 'SentimentAnalysis' package.
+```{r}
+library(SentimentAnalysis)
+sentiments=analyzeSentiment(text)
+sentiments=convertToBinaryResponse(sentiments)$SentimentGI
+print(table(sentiments))
+```
+Interestingly, according to the sentiment analysis' result, most of the complaints are positive in some meaning. This is different from what we supposed before. A possible explanation for this may be that when users write a complaint, he or she tend to use descpritive words other than those refelecting subjective moods.
